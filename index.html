@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launcher</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<style>
+  :root {
+    --bg:#08090b; --bar:#0d0f13; --panel:#111319; --line:#1e222b; --text:#e9ebef; --dim:#7d8491;
+    --accent:#6ea8ff; --warn:#ff8a80; --ok:#5fd38a; --wait:#f2b561;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
+  html, body { margin:0; height:100%; color:var(--text);
+    font:14px/1.4 "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(900px 520px at 12% -8%, #151a26 0%, transparent 62%),
+      radial-gradient(700px 480px at 100% 110%, #11131c 0%, transparent 60%),
+      var(--bg); }
+
+  /* tab strip */
+  #bar { height:40px; background:var(--bar); border-bottom:1px solid var(--line);
+    display:flex; align-items:stretch; padding:0 6px; gap:2px; }
+  .tab { display:flex; align-items:center; gap:8px; padding:0 14px; cursor:pointer;
+    color:var(--dim); border-bottom:2px solid transparent; user-select:none; }
+  .tab:hover { color:var(--text); }
+  .tab.on { color:var(--text); border-bottom-color:var(--accent); }
+  .tab .x { opacity:.5; padding:0 2px; border-radius:3px; }
+  .tab .x:hover { opacity:1; background:var(--line); }
+  .spacer { flex:1; }
+  #lockNow { align-self:center; }
+
+  /* tiles */
+  #home { padding:28px; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(270px,1fr)); gap:18px; max-width:1180px; }
+  .tile { --a:var(--accent);
+    position:relative; display:flex; flex-direction:column; gap:12px; padding:16px; border-radius:12px; cursor:pointer;
+    background:linear-gradient(160deg, #14171e 0%, #0c0d11 100%);
+    border:1px solid color-mix(in srgb, var(--a) 55%, transparent);
+    box-shadow: 0 0 14px -4px color-mix(in srgb, var(--a) 50%, transparent),
+                inset 0 0 22px -14px color-mix(in srgb, var(--a) 70%, transparent);
+    transition: box-shadow .18s, border-color .18s; }
+  .tile:hover, .tile:focus-visible { outline:none;
+    border-color:color-mix(in srgb, var(--a) 95%, transparent);
+    box-shadow: 0 0 24px -2px color-mix(in srgb, var(--a) 70%, transparent),
+                inset 0 0 26px -12px color-mix(in srgb, var(--a) 80%, transparent); }
+  .head { display:flex; gap:14px; align-items:center; min-width:0; }
+  .icon { flex:none; width:56px; height:56px; border-radius:12px; display:grid; place-items:center; overflow:hidden;
+    background:#0a0b0f; border:1px solid var(--line); color:var(--a); font-size:22px; font-weight:600; }
+  .icon img { width:100%; height:100%; object-fit:contain; }
+  .icon.sm { width:40px; height:40px; font-size:16px; --a:var(--accent); }
+  .txt { min-width:0; }
+  .name { font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sub { color:var(--dim); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); min-height:18px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:#444a56; flex:none; }
+  .dot.running { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .dot.waiting { background:var(--wait); box-shadow:0 0 8px var(--wait); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .tile.add { align-items:center; justify-content:center; min-height:132px; gap:6px; color:var(--dim);
+    background:transparent; border:1px dashed var(--line); box-shadow:none; }
+  .tile.add:hover, .tile.add:focus-visible { color:var(--text); border-color:var(--dim); box-shadow:none; }
+  .tile.add .plus { font-size:28px; line-height:1; }
+
+  button { background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:6px;
+    padding:5px 11px; font:inherit; font-size:12px; cursor:pointer; }
+  button:hover:not(:disabled) { color:var(--text); border-color:var(--dim); }
+  button:disabled { opacity:.4; cursor:default; }
+  button.primary { color:#0a0f18; background:var(--accent); border-color:var(--accent); font-weight:600; }
+  button.primary:hover:not(:disabled) { color:#0a0f18; filter:brightness(1.1); }
+  button.danger { color:#1a0b0a; background:var(--warn); border-color:var(--warn); font-weight:600; }
+  button.ghostdanger { color:var(--warn); border-color:transparent; }
+  button.ghostdanger:hover:not(:disabled) { color:var(--warn); border-color:var(--warn); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+
+  /* lock screen */
+  #lock { position:fixed; inset:0; background:var(--bg); display:grid; place-items:center; z-index:50; }
+  #lockForm { width:320px; display:flex; flex-direction:column; gap:10px; }
+  #lockForm h1 { margin:0; font-size:20px; font-weight:600; }
+  #lockHint { margin:0; color:var(--dim); font-size:13px; }
+  input[type=password], input[type=text] { background:#0a0b0f; border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:8px 10px; font:inherit; width:100%; min-width:0; }
+  input[type=color] { width:40px; height:34px; padding:2px; background:#0a0b0f; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+  .err { margin:0; min-height:1.4em; color:var(--warn); font-size:13px; }
+
+  /* dialogs */
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:grid; place-items:center; z-index:40; overflow:auto; padding:16px; }
+  .dialog { width:min(460px, 100%); background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; padding:20px; display:flex; flex-direction:column; gap:14px; }
+  .dialog h2 { margin:0; font-size:16px; font-weight:600; }
+  .opt { display:flex; gap:10px; align-items:flex-start; cursor:pointer; }
+  .opt input { margin-top:3px; }
+  .opt b { display:block; font-weight:600; }
+  .opt span { color:var(--dim); font-size:12px; }
+  .note { margin:0; color:var(--dim); font-size:12px; }
+  .actions { display:flex; align-items:center; gap:8px; }
+  .fld { display:flex; flex-direction:column; gap:5px; }
+  .fld > span { font-size:12px; color:var(--text); }
+  .fld > span i { color:var(--dim); font-style:normal; }
+  .pair { display:flex; gap:8px; align-items:center; }
+  #rmBox { border:1px solid var(--warn); border-radius:8px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+</style>
+</head>
+<body>
+  <div id="bar"></div>
+  <div id="home"><div id="grid"></div></div>
+
+  <div id="lock" hidden>
+    <form id="lockForm" autocomplete="off">
+      <h1 id="lockTitle">Locked</h1>
+      <p id="lockHint"></p>
+      <input id="pw" type="password" placeholder="Password" autocomplete="off">
+      <input id="pw2" type="password" placeholder="Repeat password" autocomplete="off" hidden>
+      <button id="lockBtn" class="primary" type="submit">Unlock</button>
+      <p id="lockErr" class="err"></p>
+    </form>
+  </div>
+
+  <div id="modal" class="overlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+      <h2 id="mTitle"></h2>
+      <label class="opt"><input type="checkbox" id="cCache">
+        <div><b>Cache</b><span>Saved copies of scripts, images and previews. Safe to clear; they download again.</span></div></label>
+      <label class="opt"><input type="checkbox" id="cCookies">
+        <div><b>Cookies</b><span>Logins and sessions for this app.</span></div></label>
+      <label class="opt"><input type="checkbox" id="cLocal">
+        <div><b>Local storage and IndexedDB</b><span>Settings and interface state kept in this app's profile, such as theme, layouts and unsaved drafts.</span></div></label>
+      <label class="opt"><input type="checkbox" id="cAll">
+        <div><b>Everything</b><span>All of the above plus service workers and other site data. Resets this app's profile to a fresh start.</span></div></label>
+      <p class="note">An open tab for this app reloads, and unsaved work in it can be lost. Files the app keeps on disk (outputs, models, saved workflows) are never touched.</p>
+      <div class="actions"><span class="spacer"></span>
+        <button id="mCancel" type="button">Cancel</button>
+        <button id="mGo" type="button" disabled>Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="formModal" class="overlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fTitle">
+      <h2 id="fTitle">Add app</h2>
+      <label class="fld"><span>Name</span><input id="fName" type="text" autocomplete="off"></label>
+      <div class="fld"><span>Launch file <i>(.exe, .bat or .cmd; optional)</i></span>
+        <div class="pair"><input id="fLaunch" type="text" spellcheck="false" placeholder="C:\Tools\MyApp\start.exe">
+          <button id="fLaunchPick" type="button">Browse</button></div></div>
+      <label class="fld"><span>Arguments <i>(optional)</i></span><input id="fArgs" type="text" spellcheck="false" autocomplete="off"></label>
+      <div class="fld"><span>Working folder <i>(optional; defaults to the launch file's folder)</i></span>
+        <div class="pair"><input id="fCwd" type="text" spellcheck="false">
+          <button id="fCwdPick" type="button">Browse</button></div></div>
+      <label class="fld"><span>URL <i>(optional; localhost only)</i></span>
+        <input id="fUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:5001"></label>
+      <div class="fld"><span>Icon and highlight color</span>
+        <div class="pair"><div id="fIconPrev" class="icon sm"></div>
+          <button id="fIconPick" type="button">Choose image</button>
+          <button id="fIconClear" type="button">Remove image</button>
+          <input id="fAccent" type="color" value="#6ea8ff" title="Highlight color"></div></div>
+      <p id="fErr" class="err"></p>
+      <div id="rmBox" hidden>
+        <span>Remove this tile? The program's own files stay where they are.</span>
+        <label class="opt"><input type="checkbox" id="rmErase"><div><b>Also erase its browser profile</b><span>Cookies, settings and cache <span class="appname"></span> stored for this app.</span></div></label>
+        <div class="actions"><span class="spacer"></span><button id="rmCancel" type="button">Keep it</button><button id="rmGo" class="danger" type="button">Remove tile</button></div>
+      </div>
+      <div class="actions">
+        <button id="fRemove" class="ghostdanger" type="button">Remove…</button>
+        <span class="spacer"></span>
+        <button id="fCancel" type="button">Cancel</button>
+        <button id="fSave" class="primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const DEFAULT_ACCENT = '#6ea8ff';
+  let authMode = 'locked';
+  let APP_NAME = '';   // filled in from the app (see main.js)
+  const lockedText = () => (APP_NAME ? APP_NAME + ' is locked' : 'Locked');
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  const baseName = (p) => (p || '').split(/[\\/]/).pop();
+
+  // ---------- lock screen ----------
+  function applyAuth(s) {
+    authMode = s;
+    if (s === 'unlocked') { $('lock').hidden = true; renderTiles(); return; }
+    const setup = s === 'setup';
+    $('lock').hidden = false;
+    $('modal').hidden = true; $('formModal').hidden = true;
+    $('lockTitle').textContent = setup ? 'Choose a password' : lockedText();
+    $('lockHint').textContent = setup ? 'You will enter this each time ' + (APP_NAME || 'the app') + ' starts. Use at least 6 characters.' : '';
+    $('pw2').hidden = !setup;
+    $('lockBtn').textContent = setup ? 'Set password' : 'Unlock';
+    $('pw').value = ''; $('pw2').value = ''; $('lockErr').textContent = '';
+    $('pw').focus();
+  }
+
+  $('lockForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const pw = $('pw').value;
+    let r;
+    if (authMode === 'setup') {
+      if (pw !== $('pw2').value) { $('lockErr').textContent = 'Passwords do not match.'; return; }
+      r = await shell.authSetup(pw);
+    } else {
+      r = await shell.authUnlock(pw);
+    }
+    if (r && !r.ok) { $('lockErr').textContent = r.error; $('pw').value = ''; $('pw').focus(); }
+  };
+
+  // ---------- tab strip ----------
+  const bar = $('bar');
+  function renderTabs(state) {
+    bar.replaceChildren();
+    const mk = (id, title, closable) => {
+      const t = el('div', 'tab' + (state.active === id ? ' on' : ''));
+      t.append(el('span', '', title));
+      t.onclick = () => shell.activate(id);
+      if (closable) {
+        const x = el('span', 'x', '×'); x.title = 'Close tab';
+        x.onclick = (e) => { e.stopPropagation(); shell.close(id); };
+        t.append(x);
+      }
+      bar.append(t);
+    };
+    mk('home', 'Home', false);
+    state.tabs.forEach((t) => mk(t.id, t.title, true));
+    const lk = el('button', '', 'Lock'); lk.id = 'lockNow'; lk.onclick = () => shell.lock();
+    bar.append(el('div', 'spacer'), lk);
+  }
+
+  // ---------- clear dialog ----------
+  const fmt = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB'
+    : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(2) + ' GB';
+
+  function openClear(a, onDone) {
+    const cache = $('cCache'), cookies = $('cCookies'), local = $('cLocal'), all = $('cAll');
+    const go = $('mGo'); let armed = false;
+    $('mTitle').textContent = 'Clear data for ' + a.name;
+    [cache, cookies, local, all].forEach((c) => { c.checked = false; c.disabled = false; });
+
+    const refresh = () => {
+      if (all.checked) [cache, cookies, local].forEach((c) => { c.checked = true; c.disabled = true; });
+      else [cache, cookies, local].forEach((c) => { c.disabled = false; });
+      armed = false;
+      const any = cache.checked || cookies.checked || local.checked || all.checked;
+      const risky = cookies.checked || local.checked || all.checked;
+      go.disabled = !any;
+      go.className = risky ? 'danger' : 'primary';
+      go.textContent = 'Clear';
+    };
+    [cache, cookies, local, all].forEach((c) => { c.onchange = refresh; });
+    refresh();
+
+    const close = () => { $('modal').hidden = true; };
+    $('mCancel').onclick = close;
+    $('modal').onclick = (e) => { if (e.target === $('modal')) close(); };
+    go.onclick = async () => {
+      const risky = cookies.checked || local.checked || all.checked;
+      if (risky && !armed) { armed = true; go.textContent = 'Click again to confirm'; return; }
+      const what = all.checked ? ['all']
+        : [cache.checked && 'cache', cookies.checked && 'cookies', local.checked && 'localstorage'].filter(Boolean);
+      go.disabled = true;
+      await shell.clear(a.id, what);
+      close(); onDone();
+    };
+    $('modal').hidden = false;
+    $('mCancel').focus();
+  }
+
+  // ---------- add / edit dialog ----------
+  function setPreview(dataUrl, letter) {
+    const p = $('fIconPrev'); p.replaceChildren();
+    if (dataUrl) { const i = document.createElement('img'); i.src = dataUrl; p.append(i); }
+    else p.textContent = (letter || '?')[0].toUpperCase();
+  }
+
+  function openForm(a) {
+    const edit = !!a;
+    let iconPath = null, removeIcon = false;
+    $('fTitle').textContent = edit ? 'Edit ' + a.name : 'Add app';
+    $('fName').value = a ? a.name || '' : '';
+    $('fLaunch').value = a ? a.launch || '' : '';
+    $('fArgs').value = a ? a.args || '' : '';
+    $('fCwd').value = a ? a.cwd || '' : '';
+    $('fUrl').value = a ? a.url || '' : '';
+    $('fAccent').value = (a && a.accent) || DEFAULT_ACCENT;
+    $('fErr').textContent = '';
+    $('rmBox').hidden = true; $('rmErase').checked = false;
+    $('fRemove').hidden = !edit; $('fRemove').disabled = false;
+    setPreview(a && a.iconData, a ? a.name : '+');
+    $('fSave').disabled = false;
+
+    $('fLaunchPick').onclick = async () => {
+      const p = await shell.pick('launch');
+      if (!p) return;
+      $('fLaunch').value = p;
+      if (!$('fName').value.trim()) {
+        $('fName').value = baseName(p).replace(/\.[^.]+$/, '');
+        if (!a) setPreview(null, $('fName').value);
+      }
+    };
+    $('fCwdPick').onclick = async () => { const p = await shell.pick('folder'); if (p) $('fCwd').value = p; };
+    $('fIconPick').onclick = async () => {
+      const r = await shell.pick('icon');
+      if (!r) return;
+      iconPath = r.path; removeIcon = false;
+      setPreview(r.preview, $('fName').value);
+    };
+    $('fIconClear').onclick = () => { iconPath = null; removeIcon = true; setPreview(null, $('fName').value); };
+
+    $('fCancel').onclick = () => { $('formModal').hidden = true; };
+    $('fSave').onclick = async () => {
+      $('fSave').disabled = true;
+      const r = await shell.saveApp({
+        id: a ? a.id : undefined,
+        name: $('fName').value, launch: $('fLaunch').value, args: $('fArgs').value,
+        cwd: $('fCwd').value, url: $('fUrl').value, accent: $('fAccent').value,
+        iconPath, removeIcon,
+      });
+      $('fSave').disabled = false;
+      if (!r.ok) { $('fErr').textContent = r.error; return; }
+      $('formModal').hidden = true;
+      renderTiles();
+    };
+
+    $('fRemove').onclick = () => { $('rmBox').hidden = false; $('fRemove').disabled = true; };
+    $('rmCancel').onclick = () => { $('rmBox').hidden = true; $('fRemove').disabled = false; };
+    $('rmGo').onclick = async () => {
+      const r = await shell.removeApp(a.id, $('rmErase').checked);
+      if (!r.ok) { $('fErr').textContent = r.error; $('rmBox').hidden = true; $('fRemove').disabled = false; return; }
+      $('formModal').hidden = true;
+      renderTiles();
+    };
+
+    $('formModal').hidden = false;
+    $('fName').focus();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { $('modal').hidden = true; $('formModal').hidden = true; }
+  });
+
+  // ---------- tiles ----------
+  const tiles = new Map();   // id -> { meta, dot, label, stop, state, notice }
+
+  function paintStatus(t) {
+    const s = t.state || { state: 'stopped', canStop: false };
+    t.dot.className = 'dot ' + (s.state === 'stopped' ? '' : s.state);
+    t.label.textContent = t.notice
+      || (s.state === 'waiting' ? 'Waiting for the server…'
+        : s.state === 'running' ? 'Running'
+        : (t.meta.url || t.meta.launch) ? 'Not running' : '');
+    t.stop.hidden = !s.canStop;
+  }
+
+  function applyStatus(map) {
+    for (const [id, s] of Object.entries(map || {})) {
+      const t = tiles.get(id);
+      if (t) { t.state = s; paintStatus(t); }
+    }
+  }
+
+  function makeTile(a) {
+    const tile = el('div', 'tile');
+    tile.tabIndex = 0;
+    tile.style.setProperty('--a', a.accent || DEFAULT_ACCENT);
+    tile.onclick = () => shell.start(a.id);
+    tile.onkeydown = (e) => { if (e.key === 'Enter' && e.target === tile) shell.start(a.id); };
+
+    const icon = el('div', 'icon');
+    if (a.iconData) { const i = document.createElement('img'); i.src = a.iconData; icon.append(i); }
+    else icon.textContent = (a.name || '?')[0].toUpperCase();
+    const txt = el('div', 'txt');
+    txt.append(el('div', 'name', a.name), el('div', 'sub', a.url || baseName(a.launch)));
+    let size = null;
+    if (a.url) { size = el('div', 'sub'); txt.append(size); }
+    const head = el('div', 'head'); head.append(icon, txt);
+
+    const dot = el('span', 'dot'); const label = el('span');
+    const status = el('div', 'status'); status.append(dot, label);
+
+    const stop = el('button', '', 'Stop'); stop.hidden = true;
+    stop.onclick = (e) => { e.stopPropagation(); stop.disabled = true; shell.stop(a.id).then(() => { stop.disabled = false; }); };
+    const row = el('div', 'row'); row.append(stop);
+
+    const refreshSize = async () => {
+      if (!size) return;
+      try { size.textContent = 'Cache: ' + fmt(await shell.cacheSize(a.id)); } catch { size.textContent = ''; }
+    };
+    if (a.url) {
+      const clr = el('button', '', 'Clear data…');
+      clr.onclick = (e) => {
+        e.stopPropagation();
+        openClear(a, () => {
+          const t = tiles.get(a.id); if (t) { t.notice = 'Cleared'; paintStatus(t); setTimeout(() => { t.notice = ''; paintStatus(t); }, 2500); }
+          refreshSize();
+        });
+      };
+      row.append(clr);
+    }
+    const ed = el('button', '', 'Edit');
+    ed.onclick = (e) => { e.stopPropagation(); openForm(a); };
+    row.append(ed);
+
+    tile.append(head, status, row);
+    const t = { meta: a, dot, label, stop, state: null, notice: '' };
+    tiles.set(a.id, t);
+    paintStatus(t);
+    refreshSize();
+    return tile;
+  }
+
+  function makeNotesTile() {
+    const tile = el('div', 'tile');
+    tile.tabIndex = 0;
+    tile.style.setProperty('--a', '#c9a86a');
+    tile.onclick = () => shell.openNotes();
+    tile.onkeydown = (e) => { if (e.key === 'Enter') shell.openNotes(); };
+    const txt = el('div', 'txt');
+    txt.append(el('div', 'name', 'Notes'), el('div', 'sub', 'Plain text notes, stored on this PC'));
+    const head = el('div', 'head'); head.append(el('div', 'icon', 'N'), txt);
+    const status = el('div', 'status'); status.append(el('span', 'dot'), el('span', '', 'Built in · no network'));
+    tile.append(head, status);
+    return tile;
+  }
+
+  function makeAddTile() {
+    const tile = el('div', 'tile add');
+    tile.tabIndex = 0;
+    tile.append(el('div', 'plus', '+'), el('div', '', 'Add app'));
+    tile.onclick = () => openForm(null);
+    tile.onkeydown = (e) => { if (e.key === 'Enter') openForm(null); };
+    return tile;
+  }
+
+  async function renderTiles() {
+    const apps = await shell.apps();
+    const grid = $('grid');
+    grid.replaceChildren(); tiles.clear();
+    grid.append(makeNotesTile());
+    for (const a of apps) grid.append(makeTile(a));
+    grid.append(makeAddTile());
+    applyStatus(await shell.status());
+  }
+
+  shell.onState(renderTabs);
+  shell.onAuth(applyAuth);
+  shell.onStatus(applyStatus);
+  shell.onNotice(({ id, text }) => {
+    const t = tiles.get(id);
+    if (!t) return;
+    t.notice = text; paintStatus(t);
+    setTimeout(() => { if (t.notice === text) { t.notice = ''; paintStatus(t); } }, 8000);
+  });
+  shell.appName().then((n) => {
+    APP_NAME = n;
+    document.querySelectorAll('.appname').forEach((e) => { e.textContent = n; });
+    if (authMode === 'locked') $('lockTitle').textContent = lockedText();
+  }).catch(() => {});
+  shell.authStatus().then(applyAuth);
+</script>
+</body>
+</html>

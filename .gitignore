@@ -1,0 +1,30 @@
+# Dependencies (npm install recreates these)
+node_modules/
+
+# Your private data. Never publish these.
+# Password hash, browser profiles, settings:
+userdata/
+# Your notes:
+notes/
+# Your tiles: names, local paths, icons, launch logs:
+apps/
+
+# Notes trash and temp files
+.trash/
+*.tmp
+
+# Logs and secrets
+*.log
+npm-debug.log*
+.env
+
+# Update bundles and local backups
+*.zip
+README-v0.*.txt
+
+# OS and editor junk
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

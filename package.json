@@ -1,0 +1,13 @@
+{
+  "name": "portonyx",
+  "version": "0.1.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.8.0"
+  },
+  "productName": "Port Onyx",
+  "description": "A walled launcher for local apps"
+}

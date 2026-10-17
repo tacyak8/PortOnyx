@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notes</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  :root { --bg:#08090b; --panel:#0d0f13; --line:#1e222b; --text:#e9ebef; --dim:#7d8491;
+    --accent:#c9a86a; --warn:#ff8a80; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font:14px/1.4 "Segoe UI", system-ui, sans-serif; }
+  #app { display:flex; height:100%; }
+  #side { width:300px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0; }
+  .top { display:flex; gap:8px; padding:12px; }
+  .top input { flex:1; }
+
+  #cats { max-height:36%; overflow:auto; border-top:1px solid var(--line); padding:6px 0; flex:none; }
+  .cat { display:flex; justify-content:space-between; gap:8px; padding:6px 14px; cursor:pointer;
+    border-left:2px solid transparent; color:var(--dim); }
+  .cat:hover { background:#12151b; color:var(--text); }
+  .cat.on { background:#14171e; border-left-color:var(--accent); color:var(--text); }
+  .cat.drop { background:#1b1710; border-left-color:var(--accent); color:var(--text); }
+  .cat .n { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cat .c { font-size:12px; flex:none; }
+  #catTools { display:flex; gap:6px; padding:6px 12px; flex-wrap:wrap; border-bottom:1px solid var(--line); }
+  #catEdit { display:flex; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); }
+  #catEdit input { flex:1; }
+  #catMsg { padding:0 12px; font-size:12px; color:var(--warn); }
+  #catMsg:empty { display:none; }
+
+  #list { flex:1; overflow:auto; min-height:0; }
+  .item { padding:9px 14px; cursor:pointer; border-left:2px solid transparent; }
+  .item:hover { background:#12151b; }
+  .item.on { background:#14171e; border-left-color:var(--accent); }
+  .item .t { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item .d, .item .s { font-size:12px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .foot { display:flex; gap:8px; padding:10px 12px 4px; border-top:1px solid var(--line); }
+  #dirLabel { padding:2px 12px 12px; font-size:11px; color:var(--dim); word-break:break-all; }
+  .dim { color:var(--dim); }
+  .pad { padding:14px; }
+
+  #main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  #empty, #missing { margin:auto; max-width:420px; padding:24px; text-align:center; }
+  #missing p { margin:0 0 14px; }
+  #editor { flex:1; display:flex; flex-direction:column; min-height:0; }
+  .bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  #title { flex:1; min-width:0; background:transparent; border:1px solid transparent; border-radius:6px;
+    color:var(--text); font:inherit; font-size:17px; font-weight:600; padding:5px 8px; }
+  #title:hover:not([readonly]), #title:focus { border-color:var(--line); outline:none; }
+  #status { font-size:12px; min-width:60px; text-align:right; }
+  #delBox { display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--warn); color:var(--warn); }
+  #text { flex:1; min-height:0; resize:none; border:0; outline:none; background:transparent; color:var(--text);
+    padding:18px 28px; line-height:1.6; font-family:"Segoe UI", system-ui, sans-serif; font-size:16px; }
+  .count { padding:6px 14px; border-top:1px solid var(--line); font-size:12px; color:var(--dim); }
+  input[type=text] { background:#0a0b0f; border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:7px 10px; font:inherit; min-width:0; }
+  select { background:#0a0b0f; color:var(--text); border:1px solid var(--line); border-radius:6px;
+    padding:5px 8px; font:inherit; font-size:12px; max-width:150px; }
+  button { background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:6px;
+    padding:5px 11px; font:inherit; font-size:12px; cursor:pointer; white-space:nowrap; }
+  button:hover { color:var(--text); border-color:var(--dim); }
+  button.primary { color:#120e05; background:var(--accent); border-color:var(--accent); font-weight:600; }
+  button.primary:hover { color:#120e05; filter:brightness(1.1); }
+  button.danger { color:#1a0b0a; background:var(--warn); border-color:var(--warn); font-weight:600; }
+  button.ghostdanger { color:var(--warn); border-color:transparent; }
+  button.ghostdanger:hover { color:var(--warn); border-color:var(--warn); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="top">
+      <input id="q" type="text" placeholder="Search notes" autocomplete="off" spellcheck="false">
+      <button id="newBtn" class="primary" type="button">New</button>
+    </div>
+    <div id="cats"></div>
+    <div id="catTools">
+      <button id="catNew" type="button">+ Category</button>
+      <button id="catRen" type="button" hidden>Rename</button>
+      <button id="catDel" type="button" hidden>Delete</button>
+    </div>
+    <div id="catEdit" hidden>
+      <input id="catName" type="text" autocomplete="off" spellcheck="false" placeholder="Category name">
+      <button id="catOk" class="primary" type="button">OK</button>
+      <button id="catNo" type="button">Cancel</button>
+    </div>
+    <div id="catMsg"></div>
+    <div id="list"></div>
+    <div class="foot">
+      <button id="openBtn" type="button">Open file…</button>
+      <button id="dirBtn" type="button">Folder…</button>
+    </div>
+    <div id="dirLabel"></div>
+  </aside>
+  <main id="main">
+    <div id="missing" hidden>
+      <p id="missingMsg"></p>
+      <button id="retryBtn" type="button">Retry</button>
+      <button id="chooseBtn" type="button">Choose folder…</button>
+    </div>
+    <div id="empty" class="dim">Pick a note on the left, or press New.</div>
+    <div id="editor" hidden>
+      <div class="bar">
+        <input id="title" type="text" autocomplete="off" spellcheck="false" aria-label="Note title">
+        <span id="status" class="dim"></span>
+        <select id="catSel" title="Category" aria-label="Category"></select>
+        <button id="fm" type="button" title="Smaller text">A−</button>
+        <button id="fp" type="button" title="Larger text">A+</button>
+        <button id="copyBtn" type="button" hidden>Save a copy to library</button>
+        <button id="delBtn" class="ghostdanger" type="button">Delete</button>
+      </div>
+      <div id="delBox" hidden>
+        <span>Move this note to the trash?</span>
+        <button id="delYes" class="danger" type="button">Delete</button>
+        <button id="delNo" type="button">Cancel</button>
+      </div>
+      <textarea id="text" spellcheck="false" aria-label="Note text"></textarea>
+      <div class="count" id="count"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  let current = null;          // { ref, cat, name, readOnly }   (ref is null for read-only outside files)
+  let scope = null;            // null = All notes, '' = Unsorted, otherwise a category name
+  let items = [], cats = [];
+  let catMode = null;          // 'new' | 'rename' | null
+  let saveTimer = null;
+  let dirty = false;
+  let fontSize = 16;
+  try { fontSize = Number(localStorage.getItem('fs')) || 16; } catch { /* storage may be unavailable */ }
+
+  const setStatus = (t) => { $('status').textContent = t; };
+  const stripExt = (n) => n.replace(/\.[^.]+$/, '');
+  const catOf = (ref) => (ref.includes('/') ? ref.split('/')[0] : '');
+  const fileOf = (ref) => ref.split('/').pop();
+
+  function show(which) {
+    $('missing').hidden = which !== 'missing';
+    $('empty').hidden = which !== 'empty';
+    $('editor').hidden = which !== 'editor';
+  }
+  function applyFont() {
+    $('text').style.fontSize = fontSize + 'px';
+    try { localStorage.setItem('fs', String(fontSize)); } catch { /* ignore */ }
+  }
+  function updateCount() {
+    const t = $('text').value.trim();
+    $('count').textContent = (t ? t.split(/\s+/).length : 0) + ' words · ' + $('text').value.length + ' characters';
+  }
+
+  async function flush() {
+    clearTimeout(saveTimer);
+    if (!dirty || !current || current.readOnly) return;
+    dirty = false;
+    const r = await notes.save(current.ref, $('text').value);
+    if (!r.ok) { dirty = true; setStatus('Save failed'); $('status').title = r.error; }
+    else setStatus('Saved');
+  }
+
+  function showMissing(dir) {
+    $('missingMsg').textContent = 'Notes folder not found: ' + (dir || $('dirLabel').textContent)
+      + '. If it is inside an encrypted vault, unlock the vault and press Retry, or choose another folder.';
+    $('list').replaceChildren(); $('cats').replaceChildren();
+    current = null;
+    show('missing');
+  }
+
+  // ----- categories -----
+  function renderCats() {
+    const box = $('cats');
+    box.replaceChildren();
+    const mk = (label, count, sc, dropTarget) => {
+      const r = el('div', 'cat' + (scope === sc ? ' on' : ''));
+      r.append(el('span', 'n', label), el('span', 'c', String(count)));
+      r.onclick = () => { scope = sc; hideCatEdit(); renderCats(); renderItems(); };
+      if (dropTarget !== undefined) {
+        r.ondragover = (e) => { e.preventDefault(); r.classList.add('drop'); };
+        r.ondragleave = () => r.classList.remove('drop');
+        r.ondrop = (e) => { e.preventDefault(); r.classList.remove('drop'); moveByDrop(e.dataTransfer.getData('text/plain'), dropTarget); };
+      }
+      box.append(r);
+    };
+    mk('All notes', items.length, null);
+    mk('Unsorted', items.filter((n) => n.cat === '').length, '', '');
+    for (const c of cats) mk(c, items.filter((n) => n.cat === c).length, c, c);
+    const real = scope !== null && scope !== '';
+    $('catRen').hidden = !real; $('catDel').hidden = !real;
+  }
+
+  function fillCatSelect() {
+    const sel = $('catSel');
+    sel.replaceChildren();
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); };
+    opt('', 'Unsorted');
+    cats.forEach((c) => opt(c, c));
+    sel.value = current && !current.readOnly ? current.cat : '';
+  }
+
+  function showCatEdit(mode) {
+    catMode = mode;
+    $('catMsg').textContent = '';
+    $('catEdit').hidden = false;
+    $('catName').value = mode === 'rename' ? scope : '';
+    $('catName').focus(); $('catName').select();
+  }
+  function hideCatEdit() { catMode = null; $('catEdit').hidden = true; $('catMsg').textContent = ''; }
+
+  $('catNew').onclick = () => showCatEdit('new');
+  $('catRen').onclick = () => showCatEdit('rename');
+  $('catNo').onclick = hideCatEdit;
+  $('catName').onkeydown = (e) => { if (e.key === 'Enter') $('catOk').click(); if (e.key === 'Escape') hideCatEdit(); };
+  $('catOk').onclick = async () => {
+    const v = $('catName').value.trim();
+    if (!v) return;
+    if (catMode === 'new') {
+      const r = await notes.catCreate(v);
+      if (!r.ok) { $('catMsg').textContent = r.error; return; }
+      scope = r.name;
+    } else if (catMode === 'rename') {
+      const old = scope;
+      const r = await notes.catRename(old, v);
+      if (!r.ok) { $('catMsg').textContent = r.error; return; }
+      if (current && !current.readOnly && current.cat === old) { current.cat = r.name; current.ref = r.name + '/' + current.name; }
+      scope = r.name;
+    }
+    hideCatEdit();
+    await loadList();
+  };
+  $('catDel').onclick = async () => {
+    const r = await notes.catDelete(scope);
+    if (!r.ok) { $('catMsg').textContent = r.error; return; }
+    scope = null; hideCatEdit();
+    await loadList();
+  };
+
+  async function moveByDrop(ref, target) {
+    if (!ref) return;
+    if (current && current.ref === ref) await flush();
+    const r = await notes.move(ref, target);
+    if (!r.ok) { $('catMsg').textContent = r.error; return; }
+    if (current && current.ref === ref) { current.ref = r.ref; current.cat = target; current.name = fileOf(r.ref); }
+    await loadList();
+  }
+
+  // ----- list -----
+  function renderItems() {
+    const list = $('list');
+    list.replaceChildren();
+    const shown = items.filter((n) => scope === null || n.cat === scope);
+    if (!shown.length) list.append(el('div', 'dim pad', $('q').value ? 'No matches.' : 'No notes here yet. Press New.'));
+    for (const n of shown) {
+      const row = el('div', 'item' + (current && !current.readOnly && current.ref === n.ref ? ' on' : ''));
+      const when = new Date(n.mtime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+      row.append(el('div', 't', n.title), el('div', 'd', (scope === null && n.cat ? n.cat + ' · ' : '') + when));
+      if (n.snippet) row.append(el('div', 's', n.snippet));
+      row.draggable = true;
+      row.ondragstart = (e) => { e.dataTransfer.setData('text/plain', n.ref); e.dataTransfer.effectAllowed = 'move'; };
+      row.onclick = () => selectNote(n.ref);
+      list.append(row);
+    }
+  }
+
+  async function loadList() {
+    const r = await notes.list($('q').value);
+    if (!r.ok) {
+      if (r.error === 'NOFOLDER') showMissing(); else { $('list').replaceChildren(el('div', 'dim pad', r.error)); }
+      return;
+    }
+    items = r.items; cats = r.cats;
+    if (scope !== null && scope !== '' && !cats.includes(scope)) scope = null;
+    renderCats(); renderItems(); fillCatSelect();
+  }
+
+  // ----- editor -----
+  function openEditor(ref, name, text, readOnly, status) {
+    current = { ref, cat: ref ? catOf(ref) : '', name, readOnly };
+    $('text').value = text; $('text').readOnly = readOnly;
+    $('title').value = readOnly ? name : stripExt(name); $('title').readOnly = readOnly;
+    $('copyBtn').hidden = !readOnly; $('delBtn').hidden = readOnly; $('catSel').hidden = readOnly; $('delBox').hidden = true;
+    dirty = false; setStatus(status || ''); $('status').title = '';
+    updateCount(); show('editor');
+  }
+
+  async function selectNote(ref) {
+    await flush();
+    const r = await notes.read(ref);
+    if (!r.ok) {
+      if (r.error === 'NOFOLDER') showMissing(); else { show('empty'); $('empty').textContent = r.error; await loadList(); }
+      return;
+    }
+    openEditor(ref, fileOf(ref), r.text, false, '');
+    await loadList();
+  }
+
+  async function newNote() {
+    await flush();
+    const cat = scope !== null && scope !== '' ? scope : '';
+    const r = await notes.create('Untitled', cat);
+    if (!r.ok) { if (r.error === 'NOFOLDER') showMissing(); else setStatus(r.error); return; }
+    $('q').value = '';
+    await selectNote(r.ref);
+    $('title').focus(); $('title').select();
+  }
+
+  async function commitTitle() {
+    if (!current || current.readOnly) return;
+    const base = stripExt(current.name);
+    const want = $('title').value.trim();
+    if (!want || want === base) { $('title').value = base; return; }
+    await flush();
+    const r = await notes.rename(current.ref, want);
+    if (!r.ok) { setStatus(r.error); $('title').value = base; return; }
+    current.ref = r.ref; current.name = fileOf(r.ref); $('title').value = stripExt(current.name);
+    await loadList();
+  }
+
+  $('catSel').onchange = async () => {
+    if (!current || current.readOnly) return;
+    await flush();
+    const target = $('catSel').value;
+    const r = await notes.move(current.ref, target);
+    if (!r.ok) { setStatus(r.error); fillCatSelect(); return; }
+    current.ref = r.ref; current.cat = target; current.name = fileOf(r.ref);
+    await loadList();
+    setStatus('Moved');
+  };
+
+  async function init() {
+    const r = await notes.info();
+    if (!r.ok) { show('empty'); $('empty').textContent = r.error; return; }
+    $('dirLabel').textContent = r.dir;
+    if (!r.exists) { showMissing(r.dir); return; }
+    current = null; show('empty'); $('empty').textContent = 'Pick a note on the left, or press New.';
+    await loadList();
+  }
+
+  async function chooseFolder() {
+    await flush();
+    const r = await notes.chooseDir();
+    if (r.ok && !r.cancelled) { $('q').value = ''; scope = null; await init(); }
+  }
+
+  $('text').oninput = () => {
+    if (current && current.readOnly) return;
+    dirty = true; setStatus('Unsaved…'); updateCount();
+    clearTimeout(saveTimer); saveTimer = setTimeout(flush, 500);
+  };
+  $('text').onblur = flush;
+  $('title').onblur = commitTitle;
+  $('title').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('title').blur(); $('text').focus(); } };
+
+  let searchTimer = null;
+  $('q').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadList, 200); };
+  $('newBtn').onclick = newNote;
+  $('dirBtn').onclick = chooseFolder;
+  $('chooseBtn').onclick = chooseFolder;
+  $('retryBtn').onclick = init;
+  $('fm').onclick = () => { fontSize = Math.max(11, fontSize - 1); applyFont(); };
+  $('fp').onclick = () => { fontSize = Math.min(28, fontSize + 1); applyFont(); };
+
+  $('delBtn').onclick = () => { $('delBox').hidden = false; };
+  $('delNo').onclick = () => { $('delBox').hidden = true; };
+  $('delYes').onclick = async () => {
+    if (!current || current.readOnly) return;
+    clearTimeout(saveTimer); dirty = false;
+    const r = await notes.remove(current.ref);
+    if (!r.ok) { setStatus(r.error); $('delBox').hidden = true; return; }
+    current = null; show('empty'); $('empty').textContent = 'Moved to the trash.';
+    await loadList();
+  };
+
+  $('openBtn').onclick = async () => {
+    await flush();
+    const r = await notes.openFile();
+    if (!r.ok) { setStatus(r.error); return; }
+    if (r.cancelled) return;
+    openEditor(null, r.name, r.text, true, 'Read-only' + (r.truncated ? ' · first 2 MB shown' : ''));
+    await loadList();
+  };
+  $('copyBtn').onclick = async () => {
+    const r = await notes.importCopy();
+    if (!r.ok) { setStatus(r.error); return; }
+    scope = null;
+    await selectNote(r.ref);
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (!e.ctrlKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') { e.preventDefault(); flush(); }
+    if (k === 'n') { e.preventDefault(); newNote(); }
+  });
+
+  applyFont();
+  init();
+</script>
+</body>
+</html>
