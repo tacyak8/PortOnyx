@@ -3,6 +3,10 @@ const call = (ch) => (...a) => ipcRenderer.invoke(ch, ...a);
 
 contextBridge.exposeInMainWorld('shell', {
   appName: call('app:name'),
+  info: call('app:info'),
+  settingsGet: call('settings:get'),
+  setSpell: call('settings:spell'),
+  changePassword: call('auth:change'),
   authStatus: call('auth:status'),
   authSetup: call('auth:setup'),
   authUnlock: call('auth:unlock'),
@@ -17,6 +21,7 @@ contextBridge.exposeInMainWorld('shell', {
   openNotes: call('notes:openTab'),
   activate: call('tab:activate'),
   close: call('tab:close'),
+  reload: call('tab:reload'),
   clear: call('cache:clear'),
   cacheSize: call('cache:size'),
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),

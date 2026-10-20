@@ -28,7 +28,8 @@
   .tab .x { opacity:.5; padding:0 2px; border-radius:3px; }
   .tab .x:hover { opacity:1; background:var(--line); }
   .spacer { flex:1; }
-  #lockNow { align-self:center; }
+  #lockNow, #reloadNow, #settingsNow { align-self:center; }
+  #reloadNow, #settingsNow { margin-right:6px; }
 
   /* tiles */
   #home { padding:28px; }
@@ -48,6 +49,7 @@
   .icon { flex:none; width:56px; height:56px; border-radius:12px; display:grid; place-items:center; overflow:hidden;
     background:#0a0b0f; border:1px solid var(--line); color:var(--a); font-size:22px; font-weight:600; }
   .icon img { width:100%; height:100%; object-fit:contain; }
+  .icon.has-img { background:transparent; border-color:transparent; }
   .icon.sm { width:40px; height:40px; font-size:16px; --a:var(--accent); }
   .txt { min-width:0; }
   .name { font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -75,9 +77,12 @@
 
   /* lock screen */
   #lock { position:fixed; inset:0; background:var(--bg); display:grid; place-items:center; z-index:50; }
-  #lockForm { width:320px; display:flex; flex-direction:column; gap:10px; }
+  #lockForm { width:360px; max-width:calc(100vw - 32px); display:flex; flex-direction:column; gap:10px; }
   #lockForm h1 { margin:0; font-size:20px; font-weight:600; }
   #lockHint { margin:0; color:var(--dim); font-size:13px; }
+  #lockNote { font-size:12px; color:var(--dim); display:flex; flex-direction:column; gap:6px; }
+  #lockNote p { margin:0; }
+  code { background:#0a0b0f; border:1px solid var(--line); border-radius:4px; padding:2px 5px; word-break:break-all; color:var(--text); }
   input[type=password], input[type=text] { background:#0a0b0f; border:1px solid var(--line); color:var(--text);
     border-radius:6px; padding:8px 10px; font:inherit; width:100%; min-width:0; }
   input[type=color] { width:40px; height:34px; padding:2px; background:#0a0b0f; border:1px solid var(--line); border-radius:6px; cursor:pointer; }
@@ -109,6 +114,7 @@
     <form id="lockForm" autocomplete="off">
       <h1 id="lockTitle">Locked</h1>
       <p id="lockHint"></p>
+      <div id="lockNote" hidden></div>
       <input id="pw" type="password" placeholder="Password" autocomplete="off">
       <input id="pw2" type="password" placeholder="Repeat password" autocomplete="off" hidden>
       <button id="lockBtn" class="primary" type="submit">Unlock</button>
@@ -135,6 +141,22 @@
     </div>
   </div>
 
+  <div id="settingsModal" class="overlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sTitle">
+      <h2 id="sTitle">Settings</h2>
+      <label class="opt"><input type="checkbox" id="sSpell">
+        <div><b>Spell check</b><span>Underlines misspelled words in text boxes; right-click a word for suggestions. Turning it on for the first time downloads a dictionary file once.</span></div></label>
+      <div class="fld"><span>Change password</span>
+        <input id="sOld" type="password" placeholder="Current password" autocomplete="off">
+        <input id="sNew" type="password" placeholder="New password (at least 6 characters)" autocomplete="off">
+        <input id="sNew2" type="password" placeholder="Repeat new password" autocomplete="off">
+        <div class="pair"><button id="sChange" type="button">Change password</button><span id="sMsg" class="note"></span></div>
+      </div>
+      <p class="note">The password is saved as a scrambled code in <code id="sPath"></code>. If you forget it, close the app, delete that file, and set a new one. Your notes and apps are not affected.</p>
+      <div class="actions"><span class="spacer"></span><button id="sClose" class="primary" type="button">Done</button></div>
+    </div>
+  </div>
+
   <div id="formModal" class="overlay" hidden>
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fTitle">
       <h2 id="fTitle">Add app</h2>
@@ -146,13 +168,15 @@
       <div class="fld"><span>Working folder <i>(optional; defaults to the launch file's folder)</i></span>
         <div class="pair"><input id="fCwd" type="text" spellcheck="false">
           <button id="fCwdPick" type="button">Browse</button></div></div>
+      <label class="opt"><input type="checkbox" id="fConsole"><div><b>Show the terminal window</b><span>For .bat and .cmd files. Opens the program's own console so you can watch its output. Closing that window stops the app.</span></div></label>
       <label class="fld"><span>URL <i>(optional; localhost only)</i></span>
         <input id="fUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:5001"></label>
       <div class="fld"><span>Icon and highlight color</span>
         <div class="pair"><div id="fIconPrev" class="icon sm"></div>
           <button id="fIconPick" type="button">Choose image</button>
           <button id="fIconClear" type="button">Remove image</button>
-          <input id="fAccent" type="color" value="#6ea8ff" title="Highlight color"></div></div>
+          <input id="fAccent" type="color" value="#6ea8ff" title="Highlight color"></div>
+        <p class="note">Your image replaces the letter on the tile (the letter is only the default). A transparent PNG, such as a BiRefNet cutout, blends into the tile with no background box or color change.</p></div>
       <p id="fErr" class="err"></p>
       <div id="rmBox" hidden>
         <span>Remove this tile? The program's own files stay where they are.</span>
@@ -173,7 +197,20 @@
   const DEFAULT_ACCENT = '#6ea8ff';
   let authMode = 'locked';
   let APP_NAME = '';   // filled in from the app (see main.js)
+  let AUTH_PATH = '';  // where the password file lives (shown when choosing a password)
   const lockedText = () => (APP_NAME ? APP_NAME + ' is locked' : 'Locked');
+
+  function setLockNote() {
+    const box = $('lockNote');
+    box.replaceChildren();
+    box.hidden = authMode !== 'setup';
+    if (box.hidden) return;
+    box.append(
+      el('p', '', 'Your password is saved as a scrambled code, so it cannot be read back. It lives in this file:'),
+      el('code', '', AUTH_PATH || 'userdata\\auth.json'),
+      el('p', '', 'If you forget it, close the app, delete that file, and set a new password. That only resets the password; your notes and apps stay. It also means anyone who can open this folder can reset it, so the password keeps casual access out but does not encrypt your files.')
+    );
+  }
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -189,7 +226,8 @@
     if (s === 'unlocked') { $('lock').hidden = true; renderTiles(); return; }
     const setup = s === 'setup';
     $('lock').hidden = false;
-    $('modal').hidden = true; $('formModal').hidden = true;
+    $('modal').hidden = true; $('formModal').hidden = true; $('settingsModal').hidden = true;
+    setLockNote();
     $('lockTitle').textContent = setup ? 'Choose a password' : lockedText();
     $('lockHint').textContent = setup ? 'You will enter this each time ' + (APP_NAME || 'the app') + ' starts. Use at least 6 characters.' : '';
     $('pw2').hidden = !setup;
@@ -229,7 +267,14 @@
     mk('home', 'Home', false);
     state.tabs.forEach((t) => mk(t.id, t.title, true));
     const lk = el('button', '', 'Lock'); lk.id = 'lockNow'; lk.onclick = () => shell.lock();
-    bar.append(el('div', 'spacer'), lk);
+    bar.append(el('div', 'spacer'));
+    if (state.active !== 'home' && state.active !== '__notes') {
+      const rl = el('button', '', '↻ Reload'); rl.id = 'reloadNow'; rl.title = 'Reload this page (F5)';
+      rl.onclick = () => shell.reload();
+      bar.append(rl);
+    }
+    const st = el('button', '', 'Settings'); st.id = 'settingsNow'; st.onclick = openSettings;
+    bar.append(st, lk);
   }
 
   // ---------- clear dialog ----------
@@ -274,9 +319,17 @@
   // ---------- add / edit dialog ----------
   function setPreview(dataUrl, letter) {
     const p = $('fIconPrev'); p.replaceChildren();
+    p.classList.toggle('has-img', !!dataUrl);
     if (dataUrl) { const i = document.createElement('img'); i.src = dataUrl; p.append(i); }
     else p.textContent = (letter || '?')[0].toUpperCase();
   }
+
+  function syncConsole() {
+    const exe = /\.exe$/i.test($('fLaunch').value.trim());
+    $('fConsole').disabled = exe;
+    if (exe) $('fConsole').checked = false;
+  }
+  $('fLaunch').addEventListener('input', syncConsole);
 
   function openForm(a) {
     const edit = !!a;
@@ -288,6 +341,7 @@
     $('fCwd').value = a ? a.cwd || '' : '';
     $('fUrl').value = a ? a.url || '' : '';
     $('fAccent').value = (a && a.accent) || DEFAULT_ACCENT;
+    $('fConsole').checked = !!(a && a.showConsole); syncConsole();
     $('fErr').textContent = '';
     $('rmBox').hidden = true; $('rmErase').checked = false;
     $('fRemove').hidden = !edit; $('fRemove').disabled = false;
@@ -297,7 +351,7 @@
     $('fLaunchPick').onclick = async () => {
       const p = await shell.pick('launch');
       if (!p) return;
-      $('fLaunch').value = p;
+      $('fLaunch').value = p; syncConsole();
       if (!$('fName').value.trim()) {
         $('fName').value = baseName(p).replace(/\.[^.]+$/, '');
         if (!a) setPreview(null, $('fName').value);
@@ -318,7 +372,7 @@
       const r = await shell.saveApp({
         id: a ? a.id : undefined,
         name: $('fName').value, launch: $('fLaunch').value, args: $('fArgs').value,
-        cwd: $('fCwd').value, url: $('fUrl').value, accent: $('fAccent').value,
+        cwd: $('fCwd').value, url: $('fUrl').value, accent: $('fAccent').value, showConsole: $('fConsole').checked,
         iconPath, removeIcon,
       });
       $('fSave').disabled = false;
@@ -341,8 +395,28 @@
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { $('modal').hidden = true; $('formModal').hidden = true; }
+    if (e.key === 'Escape') { $('modal').hidden = true; $('formModal').hidden = true; $('settingsModal').hidden = true; }
   });
+
+  // ---------- settings ----------
+  async function openSettings() {
+    await shell.activate('home');   // app pages sit on top of dialogs, so go Home first
+    const s = await shell.settingsGet();
+    $('sSpell').checked = s.spell;
+    $('sPath').textContent = s.authFile;
+    ['sOld', 'sNew', 'sNew2'].forEach((id) => { $(id).value = ''; });
+    $('sMsg').textContent = '';
+    $('settingsModal').hidden = false;
+  }
+  $('sSpell').onchange = async () => { $('sSpell').checked = await shell.setSpell($('sSpell').checked); };
+  $('sChange').onclick = async () => {
+    if ($('sNew').value !== $('sNew2').value) { $('sMsg').textContent = 'New passwords do not match.'; return; }
+    const r = await shell.changePassword($('sOld').value, $('sNew').value);
+    if (!r.ok) { $('sMsg').textContent = r.error; return; }
+    ['sOld', 'sNew', 'sNew2'].forEach((id) => { $(id).value = ''; });
+    $('sMsg').textContent = 'Password changed.';
+  };
+  $('sClose').onclick = () => { $('settingsModal').hidden = true; };
 
   // ---------- tiles ----------
   const tiles = new Map();   // id -> { meta, dot, label, stop, state, notice }
@@ -372,7 +446,7 @@
     tile.onkeydown = (e) => { if (e.key === 'Enter' && e.target === tile) shell.start(a.id); };
 
     const icon = el('div', 'icon');
-    if (a.iconData) { const i = document.createElement('img'); i.src = a.iconData; icon.append(i); }
+    if (a.iconData) { const i = document.createElement('img'); i.src = a.iconData; icon.append(i); icon.classList.add('has-img'); }
     else icon.textContent = (a.name || '?')[0].toUpperCase();
     const txt = el('div', 'txt');
     txt.append(el('div', 'name', a.name), el('div', 'sub', a.url || baseName(a.launch)));
@@ -461,6 +535,7 @@
     document.querySelectorAll('.appname').forEach((e) => { e.textContent = n; });
     if (authMode === 'locked') $('lockTitle').textContent = lockedText();
   }).catch(() => {});
+  shell.info().then((i) => { AUTH_PATH = i.authFile; setLockNote(); }).catch(() => {});
   shell.authStatus().then(applyAuth);
 </script>
 </body>

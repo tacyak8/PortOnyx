@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, session, powerMonitor, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, powerMonitor, dialog, nativeImage, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -77,6 +77,20 @@ function checkPassword(pw) {
   } catch { return false; }
 }
 
+function changePassword(oldPw, newPw) {
+  const now = Date.now();
+  if (now < retryAt) return { ok: false, error: `Wait ${Math.ceil((retryAt - now) / 1000)}s and try again.` };
+  if (typeof oldPw !== 'string' || !checkPassword(oldPw)) {
+    failures++;
+    retryAt = now + Math.min(failures, 10) * 1000;
+    return { ok: false, error: 'Current password is wrong.' };
+  }
+  if (typeof newPw !== 'string' || newPw.length < 6) return { ok: false, error: 'Use at least 6 characters.' };
+  setPassword(newPw);
+  failures = 0;
+  return { ok: true };
+}
+
 function sendAuth() { win.webContents.send('auth', authState()); }
 
 function lock() {
@@ -90,6 +104,7 @@ function unlock() {
   failures = 0;
   activate(active);
   sendAuth();
+  maybeAskSpellcheck();
 }
 
 const guarded = (fn) => (...a) => {
@@ -165,9 +180,10 @@ async function saveApp(d) {
   let existing = {};
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* new app */ }
 
-  const m = { ...existing, name, url, launch, args, cwd, accent };
+  const showConsole = !!d.showConsole && ['.bat', '.cmd'].includes(path.extname(launch).toLowerCase());
+  const m = { ...existing, name, url, launch, args, cwd, accent, showConsole };
   if (!m.clear) m.clear = { policy: 'never', scope: 'cache' };
-  for (const k of ['url', 'launch', 'args', 'cwd']) if (!m[k]) delete m[k];
+  for (const k of ['url', 'launch', 'args', 'cwd', 'showConsole']) if (!m[k]) delete m[k];
 
   try {
     if (d.iconPath) { writeIcon(d.iconPath, path.join(dir, 'icon.png')); m.icon = 'icon.png'; }
@@ -222,6 +238,7 @@ function openTab(appId) {
 
   const ses = session.fromPartition('persist:' + appId);
   lockSession(ses);
+  ses.setSpellCheckerEnabled(spellOn());
 
   const view = new WebContentsView({
     webPreferences: { session: ses, contextIsolation: true, nodeIntegration: false, sandbox: true },
@@ -232,6 +249,10 @@ function openTab(appId) {
     return { action: 'deny' };
   });
   wc.on('will-navigate', (e, url) => { if (!isLocal(url)) e.preventDefault(); });
+  attachContextMenu(wc);
+  wc.on('before-input-event', (e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F5') { e.preventDefault(); wc.reload(); }
+  });
 
   win.contentView.addChildView(view);
   tabs.set(appId, { view, title: meta.name });
@@ -260,6 +281,7 @@ const notesLib = createNotes(notesDir);
 function openNotes() {
   if (tabs.has(NOTES_KEY)) return activate(NOTES_KEY);
   const ses = session.fromPartition('persist:' + NOTES_KEY);
+  ses.setSpellCheckerEnabled(spellOn());
   // The notes page never needs the network: refuse every request outright.
   ses.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
@@ -274,6 +296,7 @@ function openNotes() {
   const wc = view.webContents;
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   wc.on('will-navigate', (e) => e.preventDefault());
+  attachContextMenu(wc);
   win.contentView.addChildView(view);
   tabs.set(NOTES_KEY, { view, title: 'Notes' });
   wc.loadFile(path.join(ROOT, 'notes.html'));
@@ -291,6 +314,81 @@ const nh = (fn) => async (e, ...a) => {
   try { return { ok: true, ...(await fn(...a)) }; }
   catch (err) { return { ok: false, error: err.message === 'NOFOLDER' ? 'NOFOLDER' : err.message }; }
 };
+
+// ---------- spell check (asks first) and right-click menu ----------
+let spellAsked = false;
+const spellOn = () => loadSettings().spellcheck === 'on';
+
+function applySpellToOpenTabs(on) {
+  for (const t of tabs.values()) t.view.webContents.session.setSpellCheckerEnabled(on);
+}
+
+async function askSpellcheck() {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'question',
+    title: 'Spell check',
+    message: 'Turn on spell check?',
+    detail:
+      'Spell check needs a dictionary file (a list of words). Electron downloads it once, from a Google server, ' +
+      'the first time spell check is turned on, and keeps it on this PC.\n\n' +
+      'What is sent: a request for the dictionary file.\n' +
+      'What is not sent: anything you type. Checking happens on this PC.\n\n' +
+      'If you choose "Keep it off", nothing is downloaded. You can change your mind any time by right-clicking ' +
+      'in a text box and using the "Spell check" option.',
+    buttons: ['Download and turn on', 'Keep it off'],
+    defaultId: 1, cancelId: 1, noLink: true,
+  });
+  const s = loadSettings();
+  if (response === 0) { s.spellcheck = 'on'; s.spellcheckConsent = true; }
+  else s.spellcheck = 'off';
+  saveSettings(s);
+  applySpellToOpenTabs(s.spellcheck === 'on');
+}
+
+function maybeAskSpellcheck() {
+  if (spellAsked || loadSettings().spellcheck !== undefined) return;
+  spellAsked = true;
+  askSpellcheck().catch(() => {});
+}
+
+// Turn spell check on or off. Turning it on for the first time shows the explanation first.
+async function setSpell(on) {
+  if (on && !loadSettings().spellcheckConsent) { await askSpellcheck(); return spellOn(); }
+  const s = loadSettings(); s.spellcheck = on ? 'on' : 'off'; saveSettings(s);
+  applySpellToOpenTabs(on);
+  return on;
+}
+
+const toggleSpell = () => setSpell(!spellOn());
+
+// Right-click menu for text boxes: spelling suggestions, clipboard, spell check on/off.
+// It only appears over editable text or a selection, so it never gets in the way of an app's own menus.
+function attachContextMenu(wc) {
+  wc.on('context-menu', (_e, params) => {
+    const items = [];
+    if (params.misspelledWord && spellOn()) {
+      const sug = (params.dictionarySuggestions || []).slice(0, 5);
+      for (const s of sug) items.push({ label: s, click: () => wc.replaceMisspelling(s) });
+      if (!sug.length) items.push({ label: 'No suggestions', enabled: false });
+      items.push({ label: 'Add to dictionary', click: () => wc.session.addWordToSpellCheckerDictionary(params.misspelledWord) });
+      items.push({ type: 'separator' });
+    }
+    if (params.isEditable) {
+      const f = params.editFlags || {};
+      items.push(
+        { label: 'Cut', enabled: !!f.canCut, click: () => wc.cut() },
+        { label: 'Copy', enabled: !!f.canCopy, click: () => wc.copy() },
+        { label: 'Paste', enabled: !!f.canPaste, click: () => wc.paste() },
+        { label: 'Select all', enabled: !!f.canSelectAll, click: () => wc.selectAll() },
+        { type: 'separator' },
+        { label: 'Spell check', type: 'checkbox', checked: spellOn(), click: () => { toggleSpell().catch(() => {}); } },
+      );
+    } else if (params.selectionText) {
+      items.push({ label: 'Copy', click: () => wc.copy() });
+    }
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
+  });
+}
 
 // ---------- clearing (per app, per data type) ----------
 const CLEAR_TYPES = new Set(['cache', 'cookies', 'localstorage', 'all']);
@@ -327,6 +425,14 @@ function splitArgs(s) {
   let m;
   while ((m = re.exec(s))) out.push(m[1] !== undefined ? m[1] : m[2]);
   return out;
+}
+
+// Command line that opens the program's own visible terminal window and waits for it to close.
+// (start /wait keeps our hidden cmd alive, so Stop can still end the whole process tree.)
+function visibleCommand(launch, args, name) {
+  const title = ('Port Onyx - ' + (name || 'app')).replace(/[^A-Za-z0-9 _.-]/g, '');
+  const inner = '"' + launch + '"' + (args ? ' ' + args : '');
+  return '"start "' + title + '" /wait cmd /d /c "' + inner + '""';
 }
 
 function tcp(host, port) {
@@ -381,14 +487,19 @@ function spawnApp(meta) {
   if (!LAUNCH_EXTS.includes(ext)) return 'Launch file must be .exe, .bat or .cmd.';
   const cwd = meta.cwd && isDir(meta.cwd) ? meta.cwd : path.dirname(launch);
 
+  const visible = !!meta.showConsole && ext !== '.exe';   // show the program's own terminal window
   let fd = 'ignore';
-  try { fd = fs.openSync(path.join(APPS_DIR, meta.id, 'launch.log'), 'w'); } catch { /* no log, fine */ }
-  const base = { cwd, stdio: ['ignore', fd, fd], windowsHide: ext !== '.exe' };
+  if (!visible) {
+    try { fd = fs.openSync(path.join(APPS_DIR, meta.id, 'launch.log'), 'w'); } catch { /* no log, fine */ }
+  }
+  const base = { cwd, stdio: visible ? 'ignore' : ['ignore', fd, fd], windowsHide: ext !== '.exe' };
 
   let child;
   try {
     if (ext === '.exe') {
       child = spawn(launch, splitArgs(meta.args || ''), base);
+    } else if (visible) {
+      child = spawn('cmd.exe', ['/d', '/s', '/c', visibleCommand(launch, meta.args, meta.name)], { ...base, windowsVerbatimArguments: true });
     } else {
       const inner = '"' + launch + '"' + (meta.args ? ' ' + meta.args : '');
       child = spawn('cmd.exe', ['/d', '/s', '/c', '"' + inner + '"'], { ...base, windowsVerbatimArguments: true });
@@ -547,6 +658,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('app:name', () => APP_NAME);
+  ipcMain.handle('app:info', () => ({ name: APP_NAME, authFile: AUTH_FILE }));
 
   // auth (always available)
   ipcMain.handle('auth:status', () => authState());
@@ -572,6 +684,13 @@ app.whenReady().then(() => {
   ipcMain.handle('status:get', guarded(async () => { const s = await getStatuses(); lastStatus = JSON.stringify(s); return s; }));
   ipcMain.handle('tab:activate', guarded((_e, id) => activate(id)));
   ipcMain.handle('tab:close', guarded((_e, id) => closeTab(id)));
+  ipcMain.handle('tab:reload', guarded(() => {
+    const t = active !== NOTES_KEY ? tabs.get(active) : null;
+    if (t) t.view.webContents.reload();
+  }));
+  ipcMain.handle('settings:get', guarded(() => ({ spell: spellOn(), authFile: AUTH_FILE })));
+  ipcMain.handle('settings:spell', guarded((_e, on) => setSpell(!!on)));
+  ipcMain.handle('auth:change', guarded((_e, oldPw, newPw) => changePassword(oldPw, newPw)));
   ipcMain.handle('app:start', guarded((_e, id) => { startApp(id).catch(() => {}); }));
   ipcMain.handle('app:stop', guarded((_e, id) => stopApp(id)));
   ipcMain.handle('app:save', guarded((_e, d) => saveApp(d || {})));
